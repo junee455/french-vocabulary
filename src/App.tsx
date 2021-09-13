@@ -471,19 +471,10 @@ class AddNewWordDialog extends React.Component<{}, AddNewWordState> {
 
 function App() {
 	return (
-		<div className="App">
-			<div>
-				<VocabularyTrainer items={items} />
-				<div>fuck you</div>
-				{
-					[
-						(<div>1</div>),
-						(<div>2</div>),
-					]
-				}
-			</div>
-			<AddNewWordDialog />
-		</div>
+    <div className="App">
+      <VocabularyTrainer items={items} />
+      <AddNewWordDialog />
+    </div>
 	);
 }
 
