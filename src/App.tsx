@@ -1,26 +1,23 @@
-import React from "react";
+import React, { useState } from "react";
 import "./App.scss";
 import { BehaviorSubject, Observable, Subject, timer } from "rxjs";
 import { first, takeUntil } from "rxjs/operators";
+import { ContextMenu, ContextMenuProps } from "./components/ContextMenu";
+import { AddNewWordDialog } from "./components/AddNewWordDialog";
+import { WordService } from "./services/Word.service";
+import {
+  Word,
+  FrenchNoun,
+  FrenchNounForms,
+  UnknownWord,
+  FrenchVerbForms,
+  FrenchVerb,
+  WordType,
+} from "./models/word.model";
 
 type EmptyProps = Readonly<{}>;
 
 const cells: string[] = ["one", "two", "three"];
-
-interface FrenchVerb {
-  [key: string]: string;
-}
-
-const frenchVerbKeys = [
-  "infinitiv",
-  "je",
-  "tu",
-  "il/elle",
-  "nous",
-  "vous",
-  "ils/elles",
-  "imperatif",
-];
 
 function getCells() {
   return cells.map((cell) => <li>{cell}</li>);
@@ -33,7 +30,7 @@ interface VocabularyTrainerState {
     index?: number;
     key?: string;
   };
-  items: VocabularyItem[];
+  items: Word[];
   contextMenu?: ContextMenuProps;
 }
 
@@ -41,15 +38,6 @@ enum TranslationStateEnum {
   Original = "Original",
   Translation = "Translation",
   Both = "Both",
-}
-
-interface VocabularyItem {
-  original: FrenchVerb | string;
-  translation: string;
-}
-
-interface VocabularyProps {
-  items?: BehaviorSubject<VocabularyItem[]>;
 }
 
 class Animation {
@@ -88,69 +76,31 @@ class Animation {
   }
 }
 
-interface ContextMenuProps {
-  items?: {
-    label: string;
-    callback: () => void;
-  }[];
-  showMenu?: boolean;
-  coords?: { x: number; y: number };
-}
-
-class ContextMenu extends React.Component<ContextMenuProps> {
-  public showMenu(coords: { x: number; y: number }) {
-    this.setState({ showMenu: true, coords: coords });
-  }
-
-  public hideMenu() {
-    this.setState({ showMenu: false });
-  }
-
-  constructor(props: ContextMenuProps) {
-    super(props);
-    this.setState({ showMenu: false });
-  }
-
-  public render() {
-    if (this.props.showMenu) {
-      return (
-        <div
-          style={{
-            position: "fixed",
-            top: this.props?.coords?.y.toString() + "px",
-            left: this.props?.coords?.x.toString() + "px",
-          }}
-          className="contextMenu"
-        >
-          {this.props.items?.map((menuItem) => (
-            <div onClick={() => menuItem.callback()}>{menuItem.label}</div>
-          ))}
-        </div>
-      );
-    } else {
-      return "";
-    }
-  }
-}
-
 class VocabularyTrainer extends React.Component<
-  VocabularyProps,
+  EmptyProps,
   VocabularyTrainerState
 > {
   private preventTimer: Subject<void> = new Subject();
+  private wordService: WordService = new WordService();
 
-  constructor(props: VocabularyProps) {
+  constructor(props: EmptyProps) {
     super(props);
+
     this.state = {
       displayAll: true,
       swapColumns: false,
-      items: items.getValue(),
+      items: [],
     };
-    items.subscribe((currentItems) =>
+  }
+
+  componentDidMount() {
+    this.wordService.getWords().subscribe((words) => {
+      console.log("new words", words);
       this.setState({
-        items: currentItems,
-      })
-    );
+        ...this.state,
+        items: words,
+      });
+    });
   }
 
   public showTemporary(arg: { index?: number; key?: string }) {
@@ -186,7 +136,7 @@ class VocabularyTrainer extends React.Component<
     console.log("hi", index);
   }
 
-  public renderItem(item: VocabularyItem, index: number) {
+  public renderItem(item: Word, index: number) {
     // try to divide colums on "left" and "right"
 
     const leftColumnClass =
@@ -211,25 +161,18 @@ class VocabularyTrainer extends React.Component<
                 this.state.items.splice(index, 1);
                 this.setState({
                   items: this.state.items,
-                  contextMenu: {
-                    showMenu: false,
-                  },
                 });
               },
             },
           ],
-          showMenu: true,
-          coords: {
-            x: event.clientX,
-            y: event.clientY,
-          },
+          event: event,
         },
       });
       this.clickOnItem(index);
     }).bind(this);
 
     const itemRendered =
-      typeof item.original === "string" ? (
+      item.french?.type === "unknown" ? (
         <tr
           className="vocabularyTrainer-item"
           onContextMenu={rightClickHandler}
@@ -252,13 +195,13 @@ class VocabularyTrainer extends React.Component<
                     : leftColumnClass
                 }
               >
-                {item.original}
+                {item.french.word}
               </td>
             </React.Fragment>
           ) : (
             <React.Fragment>
               <td></td>
-              <td className={leftColumnClass}>{item.original}</td>
+              <td className={leftColumnClass}>{item.french}</td>
               <td
                 onMouseOver={() => this.showTemporary({ index: index })}
                 onMouseOut={() => this.showTemporary({})}
@@ -270,9 +213,8 @@ class VocabularyTrainer extends React.Component<
           )}
         </tr>
       ) : (
-        frenchVerbKeys
-          .filter((key: string) => (item.original as FrenchVerb)[key])
-          .map((key, proformIndex, array) => {
+        FrenchVerbForms.filter((key) => (item.french as FrenchVerb)[key]).map(
+          (key, proformIndex, array) => {
             const original = (
               <React.Fragment>
                 <td className="vocabularyTrainer-proform">{key}</td>
@@ -288,7 +230,7 @@ class VocabularyTrainer extends React.Component<
                       : leftColumnClass
                   }
                 >
-                  {(item.original as FrenchVerb)[key]}
+                  {(item.french as FrenchVerb)[key]}
                 </td>
               </React.Fragment>
             );
@@ -312,7 +254,8 @@ class VocabularyTrainer extends React.Component<
                   : [original, !proformIndex ? translation : null]}
               </tr>
             );
-          })
+          }
+        )
       );
 
     return [
@@ -362,8 +305,7 @@ class VocabularyTrainer extends React.Component<
         </table>
         <ContextMenu
           items={this.state.contextMenu?.items}
-          showMenu={this.state.contextMenu?.showMenu}
-          coords={this.state.contextMenu?.coords}
+          event={this.state.contextMenu?.event}
         />
       </div>
     );
@@ -401,32 +343,6 @@ class CollapsableArea extends React.Component<{}, CollapsableAreaState> {
   }
 }
 
-const items: BehaviorSubject<VocabularyItem[]> = new BehaviorSubject(
-  [] as VocabularyItem[]
-);
-
-items.next([
-  {
-    original: {
-      infinitiv: "parler",
-      je: "parle",
-    },
-    translation: "to speak",
-  },
-  {
-    original: "devoir",
-    translation: "to have to",
-  },
-  {
-    original: "être",
-    translation: "to be",
-  },
-  {
-    original: "lire",
-    translation: "to read",
-  },
-]);
-
 const notificationAnimation = new Animation();
 notificationAnimation.animationClasses = [
   {
@@ -440,109 +356,10 @@ notificationAnimation.animationClasses = [
 ];
 notificationAnimation.fallbackClass = "transparent";
 
-interface AddNewWordState {
-  french: FrenchVerb;
-  english: string;
-  animationClass: string;
-}
-
-class AddNewWordDialog extends React.Component<{}, AddNewWordState> {
-  constructor(props: EmptyProps) {
-    super(props);
-    this.state = {
-      french: {},
-      english: "",
-      animationClass: notificationAnimation.fallbackClass,
-    };
-  }
-
-  public setEnglishWord(word: string) {
-    this.setState({
-      english: word,
-    });
-  }
-
-  public setFrenchWord(word: string, key: string) {
-    this.setState({
-      french: {
-        ...this.state.french,
-        [key]: word,
-      },
-    });
-  }
-
-  public saveWord() {
-    if (
-      frenchVerbKeys.filter((key) => !!this.state.french[key]).length &&
-      this.state.english !== ""
-    ) {
-      items.pipe(first()).subscribe((currentItems) => {
-        if (
-          !currentItems.find(
-            (item) =>
-              item.original === this.state.french ||
-              item.translation === this.state.english
-          )
-        ) {
-          currentItems.push({
-            original: this.state.french,
-            translation: this.state.english,
-          });
-          items.next(currentItems);
-        } else {
-          notificationAnimation.stopAnimation();
-          notificationAnimation.getAnimation().subscribe((animationClass) => {
-            this.setState({
-              animationClass: animationClass,
-            });
-          });
-        }
-      });
-    }
-  }
-
-  render() {
-    return (
-      <div>
-        <h2>Add new word</h2>
-        <div className="flex">
-          <div>
-            {frenchVerbKeys.map((key) => (
-              <div className="inputWithHint">
-                <div className="hint">{key}</div>
-                <input
-                  onChange={(event) =>
-                    this.setFrenchWord(event.target.value, key)
-                  }
-                />
-              </div>
-            ))}
-          </div>
-          <div className="inputWithHint">
-            <div className="hint">English</div>
-            <input
-              onChange={(event) => this.setEnglishWord(event.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="flex">
-          <button className="defaultButton" onClick={() => this.saveWord()}>
-            Save
-          </button>
-          <div className={this.state.animationClass}>
-            This word is already in vocabulary
-          </div>
-        </div>
-      </div>
-    );
-  }
-}
-
 function App() {
   return (
     <div className="App">
-      <VocabularyTrainer items={items} />
+      <VocabularyTrainer />
       <AddNewWordDialog />
     </div>
   );
